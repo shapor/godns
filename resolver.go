@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -33,6 +34,12 @@ type Resolver struct {
 	servers       []string
 	domain_server *suffixTreeNode
 	config        *ResolvSettings
+	httpClient    *http.Client
+}
+
+func isDoh(server string) bool {
+	const dohPrefix = "https://"
+	return strings.HasPrefix(server, dohPrefix)
 }
 
 func NewResolver(c ResolvSettings) *Resolver {
@@ -40,6 +47,7 @@ func NewResolver(c ResolvSettings) *Resolver {
 		servers:       []string{},
 		domain_server: newSuffixTreeRoot(),
 		config:        &c,
+		httpClient:    nil,
 	}
 
 	if len(c.ServerListFile) > 0 {
@@ -55,6 +63,17 @@ func NewResolver(c ResolvSettings) *Resolver {
 		}
 		for _, server := range clientConfig.Servers {
 			nameserver := net.JoinHostPort(server, clientConfig.Port)
+			if isDoh(server) {
+				nameserver = server
+				if r.httpClient == nil {
+					tr := &http.Transport{
+						MaxIdleConns:       c.DohMaxIdleConns,
+						IdleConnTimeout:    time.Duration(c.DohIdleConnTimeoutSecs) * time.Second,
+						DisableCompression: c.DohDisableCompression,
+					}
+					r.httpClient = &http.Client{Transport: tr};
+				}
+			}
 			r.servers = append(r.servers, nameserver)
 		}
 	}
@@ -129,22 +148,29 @@ func (r *Resolver) ReadServerListFile(path string) {
 // in every second, and return as early as possbile (have an answer).
 // It returns an error if no request has succeeded.
 func (r *Resolver) Lookup(net string, req *dns.Msg) (message *dns.Msg, err error) {
-	c := &dns.Client{
-		Net:          net,
-		ReadTimeout:  r.Timeout(),
-		WriteTimeout: r.Timeout(),
-	}
-
-	if net == "udp" && settings.ResolvConfig.SetEDNS0 {
-		req = req.SetEdns0(65535, true)
-	}
-
 	qname := req.Question[0].Name
 
 	res := make(chan *RResp, 1)
 	var wg sync.WaitGroup
 	L := func(nameserver string) {
 		defer wg.Done()
+		// TODO: Refactor this to reuse dns.Client as it wil lbe more efficient.
+		// Fortunately, for HTTP, we reuse the HTTPClient which saves the costly
+		// overhead of re-establishing an HTTPS connection every time.  This
+		// will allow DNS-over-TLS as well without high CPU usage.
+		c := &dns.Client{
+			Net:          net,
+			ReadTimeout:  r.Timeout(),
+			WriteTimeout: r.Timeout(),
+			HTTPClient:   r.httpClient,
+		}
+		if (isDoh(nameserver)) {
+			c.Net = "https"
+		}
+		if c.Net == "udp" && settings.ResolvConfig.SetEDNS0 {
+			req = req.SetEdns0(65535, true)
+		}
+
 		r, rtt, err := c.Exchange(req, nameserver)
 		if err != nil {
 			logger.Warn("%s socket error on %s", qname, nameserver)
@@ -207,6 +233,7 @@ func (r *Resolver) Nameservers(qname string) []string {
 		logger.Debug("%s be found in domain server list, upstream: %v", qname, v)
 		server := v
 		nameserver := net.JoinHostPort(server, "53")
+		// TODO(shapor): Add DNS-over-HTTPS support to per-domain configurations
 		ns = append(ns, nameserver)
 		//Ensure query the specific upstream nameserver in async Lookup() function.
 		return ns

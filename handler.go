@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"os"
 	"time"
 
 	"github.com/miekg/dns"
@@ -93,6 +94,41 @@ func (h *GODNSHandler) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
 	logger.Info("%s lookup　%s", remote, Q.String())
 
 	IPQuery := h.isIPQuery(q)
+
+	// Handle CHAOS TXT requests per RFC4892 (https://www.ietf.org/rfc/rfc4892.txt)
+	if q.Qclass == dns.ClassCHAOS && q.Qtype == dns.TypeTXT {
+		m := new(dns.Msg)
+		m.SetReply(req)
+		rr_header := dns.RR_Header{
+			Name:	q.Name,
+			Rrtype:	dns.TypeTXT,
+			Class:	dns.ClassCHAOS,
+			Ttl:	0,
+		}
+		txt := &dns.TXT{Hdr: rr_header}
+		switch q.Name {
+		case "version.bind.":
+			txt.Txt = []string{"godns-" + settings.Version}
+		case "hostname.bind.", "id.server.":
+			hostname, err := os.Hostname();
+			if err == nil {
+				txt.Txt = []string{hostname}
+				break
+			}
+			logger.Debug("failed to get hostname from os: %s", err)
+			fallthrough
+		default:
+			dns.HandleFailed(w, req)
+			return
+		}
+		m.Answer = append(m.Answer, txt)
+		m.Authoritative = true
+		m.RecursionAvailable = true
+		m.AuthenticatedData = true
+		w.WriteMsg(m)
+		logger.Debug("answered version query with: " + txt.Txt[0])
+		return
+	}
 
 	// Query hosts
 	if settings.Hosts.Enable && IPQuery > 0 {

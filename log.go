@@ -123,7 +123,7 @@ func (h *ConsoleHandler) Setup(config map[string]interface{}) error {
 		level := _level.(int)
 		h.level = level
 	}
-	h.logger = log.New(os.Stdout, "", log.Ldate|log.Ltime)
+	h.logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 	return nil
 
 }
@@ -156,7 +156,7 @@ func (h *FileHandler) Setup(config map[string]interface{}) error {
 			return err
 		}
 
-		h.logger = log.New(output, "", log.Ldate|log.Ltime)
+		h.logger = log.New(output, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 	}
 
 	return nil

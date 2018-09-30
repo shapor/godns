@@ -39,6 +39,9 @@ type ResolvSettings struct {
 	SetEDNS0       bool
 	ServerListFile string `toml:"server-list-file"`
 	ResolvFile     string `toml:"resolv-file"`
+	DohMaxIdleConns int `toml:"doh-max-idle-connections"`
+	DohIdleConnTimeoutSecs int `toml:"doh-idle-connection-timeout"`
+	DohDisableCompression bool `toml:"doh-disable-compression"`
 }
 
 type DNSServerSettings struct {
