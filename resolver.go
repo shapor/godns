@@ -154,7 +154,7 @@ func (r *Resolver) Lookup(net string, req *dns.Msg) (message *dns.Msg, err error
 	var wg sync.WaitGroup
 	L := func(nameserver string) {
 		defer wg.Done()
-		// TODO: Refactor this to reuse dns.Client as it wil lbe more efficient.
+		// TODO: Refactor this to reuse dns.Client as it will be more efficient.
 		// Fortunately, for HTTP, we reuse the HTTPClient which saves the costly
 		// overhead of re-establishing an HTTPS connection every time.  This
 		// will allow DNS-over-TLS as well without high CPU usage.
@@ -182,7 +182,7 @@ func (r *Resolver) Lookup(net string, req *dns.Msg) (message *dns.Msg, err error
 		// that it has been verified no such domain existas and ask other resolvers
 		// would make no sense. See more about #20
 		if r != nil && r.Rcode != dns.RcodeSuccess {
-			logger.Warn("%s failed to get an valid answer on %s", qname, nameserver)
+			logger.Warn("%s got error %s from %s", qname, dns.RcodeToString[r.Rcode], nameserver)
 			if r.Rcode == dns.RcodeServerFailure {
 				return
 			}

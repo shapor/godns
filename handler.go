@@ -178,7 +178,9 @@ func (h *GODNSHandler) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
 				logger.Debug("%s didn't hit cache", Q.String())
 			} else {
 				logger.Debug("%s hit negative cache", Q.String())
-				dns.HandleFailed(w, req)
+				msg := *mesg
+				msg.Id = req.Id
+				w.WriteMsg(&msg)
 				return
 			}
 		} else {
@@ -195,23 +197,33 @@ func (h *GODNSHandler) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
 
 	if err != nil {
 		logger.Warn("Resolve query error %s", err)
-		dns.HandleFailed(w, req)
-
-		// cache the failure, too!
 		if err = h.negCache.Set(key, nil); err != nil {
 			logger.Warn("Set %s negative cache failed: %v", Q.String(), err)
 		}
+		dns.HandleFailed(w, req)
+		return
+	}
+	w.WriteMsg(mesg)
+
+	// Only query cache when qtype == 'A'|'AAAA' , qclass == 'IN'
+	if IPQuery == 0 {
 		return
 	}
 
-	w.WriteMsg(mesg)
-
-	if IPQuery > 0 && len(mesg.Answer) > 0 {
+	// NOERROR caching.
+	if len(mesg.Answer) > 0 {
 		err = h.cache.Set(key, mesg)
 		if err != nil {
 			logger.Warn("Set %s cache failed: %s", Q.String(), err.Error())
 		}
 		logger.Debug("Insert %s into cache", Q.String())
+	}
+
+	// NXDOMAIN caching.
+	if mesg.Rcode == dns.RcodeNameError {
+		if err = h.negCache.Set(key, mesg); err != nil {
+			logger.Warn("Set %s NXDOMAIN negative cache failed: %v", Q.String(), err)
+		}
 	}
 }
 
