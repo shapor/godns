@@ -20,6 +20,14 @@ func (e KeyNotFound) Error() string {
 	return e.key + " " + "not found"
 }
 
+type InvalidCacheTime struct {
+	TimeCached time.Time
+}
+
+func (e InvalidCacheTime) Error() string {
+	return "invalid cache time: " + e.TimeCached.String()
+}
+
 type KeyExpired struct {
 	Key string
 }
@@ -44,8 +52,8 @@ func (e SerializerError) Error() string {
 }
 
 type Mesg struct {
-	Msg    *dns.Msg
-	Expire time.Time
+	Msg        *dns.Msg
+	TimeCached time.Time
 }
 
 type Cache interface {
@@ -71,22 +79,39 @@ func (c *MemoryCache) Get(key string) (*dns.Msg, error) {
 		return nil, KeyNotFound{key}
 	}
 
-	if mesg.Expire.Before(time.Now()) {
+	// Make a copy of the cached response to update TTLs.
+	age := int(time.Now().Sub(mesg.TimeCached).Seconds())
+	if age < 0 {
 		c.Remove(key)
-		return nil, KeyExpired{key}
+		return nil, InvalidCacheTime{mesg.TimeCached}
+	}
+	resp := mesg.Msg.Copy()
+	for i := 0; i < len(resp.Answer); i++ {
+		if int(resp.Answer[i].Header().Ttl) < age {
+			c.Remove(key)
+			return nil, KeyExpired{key}
+		}
+		resp.Answer[i].Header().Ttl -= uint32(age)
 	}
 
-	return mesg.Msg, nil
-
+	// TODO(shapor): Parse SOA record and use the negative TTL value for
+	// NXDOMAIN caching and only cache answers.
+	for i := 0; i < len(resp.Ns); i++ {
+		if int(resp.Ns[i].Header().Ttl) < age {
+			c.Remove(key)
+			return nil, KeyExpired{key}
+		}
+		resp.Ns[i].Header().Ttl -= uint32(age)
+	}
+	return resp, nil
 }
 
 func (c *MemoryCache) Set(key string, msg *dns.Msg) error {
 	if c.Full() && !c.Exists(key) {
 		return CacheIsFull{}
 	}
-
-	expire := time.Now().Add(c.Expire)
-	mesg := Mesg{msg, expire}
+	mesg := Mesg{msg, time.Now()}
+	logger.Debug("MemoryCache key %s added", key);
 	c.mu.Lock()
 	c.Backend[key] = mesg
 	c.mu.Unlock()
@@ -97,6 +122,7 @@ func (c *MemoryCache) Remove(key string) error {
 	c.mu.Lock()
 	delete(c.Backend, key)
 	c.mu.Unlock()
+	logger.Debug("MemoryCache key %s deleted", key);
 	return nil
 }
 

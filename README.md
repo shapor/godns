@@ -183,7 +183,9 @@ stdout_logfile = /var/log/godns.log
 ## TODO
 
 * The redis cache backend
-* Update ttl
+* Parse SOA record and use the negative TTL value for NXDOMAIN expiration
+* Add DNS-over-HTTPS support to per-domain configurations
+* Refactor Lookup to reuse dns.Client
 
 ## LICENSE
 godns is under the MIT license. See the LICENSE file for details.

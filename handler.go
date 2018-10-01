@@ -178,10 +178,14 @@ func (h *GODNSHandler) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
 				logger.Debug("%s didn't hit cache", Q.String())
 			} else {
 				logger.Debug("%s hit negative cache", Q.String())
-				msg := *mesg
-				msg.Id = req.Id
-				w.WriteMsg(&msg)
-				return
+				if (mesg != nil) {
+					msg := *mesg
+					msg.Id = req.Id
+					w.WriteMsg(&msg)
+					return
+				} else {
+					logger.Debug("%s cache hit nil", Q.String())
+				}
 			}
 		} else {
 			logger.Debug("%s hit cache", Q.String())
