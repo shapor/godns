@@ -85,7 +85,10 @@ func (c *MemoryCache) Get(key string) (*dns.Msg, error) {
 		c.Remove(key)
 		return nil, InvalidCacheTime{mesg.TimeCached}
 	}
-	resp := mesg.Msg.Copy()
+	resp := &dns.Msg{}
+	if mesg.Msg != nil {
+		resp = mesg.Msg.Copy()
+	}
 	for i := 0; i < len(resp.Answer); i++ {
 		if int(resp.Answer[i].Header().Ttl) < age {
 			c.Remove(key)
